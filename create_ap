@@ -788,6 +788,10 @@ _cleanup() {
         networkmanager_rm_unmanaged_if_needed ${WIFI_IFACE} ${OLD_MACADDR}
     fi
 
+    echo -n "Reconnect NetworkManager"
+    echo -n "nmcli device connect ${ORIGINAL_WIFI_IFACE}"
+    nmcli device connect ${ORIGINAL_WIFI_IFACE}
+
     mutex_unlock
     cleanup_lock
 }
@@ -1310,6 +1314,7 @@ if [[ $FREQ_BAND != 5 && $CHANNEL -gt 14 ]]; then
 fi
 
 WIFI_IFACE=$1
+ORIGINAL_WIFI_IFACE=${WIFI_IFACE}
 
 if ! is_wifi_interface ${WIFI_IFACE}; then
     echo "ERROR: '${WIFI_IFACE}' is not a WiFi interface" >&2
@@ -1321,9 +1326,17 @@ if ! can_be_ap ${WIFI_IFACE}; then
     exit 1
 fi
 
+
+#nmcli device disconnect ${WIFI_IFACE}
+nmcli r wifi off
+rmmod brcmfmac
+modprobe brcmfmac
+sleep 2
+rfkill unblock wlan
+
 if ! can_be_sta_and_ap ${WIFI_IFACE}; then
     if is_wifi_connected ${WIFI_IFACE}; then
-        echo "ERROR: Your adapter can not be a station (i.e. be connected) and an AP at the same time" >&2
+        echo "Your adapter can not be a station (i.e. be connected) and an AP at the same time; disconnect" >&2
         exit 1
     elif [[ $NO_VIRT -eq 0 ]]; then
         echo "WARN: Your adapter does not fully support AP virtual interface, enabling --no-virt" >&2
@@ -1575,6 +1588,10 @@ if [[ -n "$COUNTRY" && $USE_IWCONFIG -eq 0 ]]; then
     iw reg set "$COUNTRY"
 fi
 
+#if networkmanager_is_running; then
+#    nmcli radio wifi on
+#fi
+
 can_transmit_to_channel ${WIFI_IFACE} ${CHANNEL} || die "Your adapter can not transmit to channel ${CHANNEL}, frequency band ${FREQ_BAND}GHz."
 
 if networkmanager_exists && ! networkmanager_iface_is_unmanaged ${WIFI_IFACE}; then
@@ -1800,7 +1817,7 @@ fi
 # start dhcp + dns (optional)
 if [[ "$SHARE_METHOD" != "bridge" ]]; then
     if [[ $NO_DNS -eq 0 ]]; then
-        DNS_PORT=5353
+        DNS_PORT=53
         iptables -w -I INPUT -p tcp -m tcp --dport $DNS_PORT -j ACCEPT || die
         iptables -w -I INPUT -p udp -m udp --dport $DNS_PORT -j ACCEPT || die
         iptables -w -t nat -I PREROUTING -s ${GATEWAY%.*}.0/24 -d ${GATEWAY} \
